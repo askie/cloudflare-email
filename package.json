@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "scripts": {
     "dev": "wrangler dev -c wrangler.local.jsonc",
     "deploy": "wrangler deploy -c wrangler.local.jsonc",

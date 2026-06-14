@@ -228,3 +228,7 @@ npm run typecheck                               # 类型检查
 - **自己测试发邮件被退回（550 SPF）**：这是发件方校验问题；用正常邮箱（Gmail/QQ/Outlook 等）发信不受影响。
 - **刚发的邮件查不到**：收信到入库有几秒延迟，稍等再查，或用 `wrangler tail` 看是否收到。
 - **提示 401 没权限**：检查 `Authorization: Bearer 密码` 是否填对。
+
+## 许可
+
+[MIT](./LICENSE) — 可自由使用、修改、分发。
