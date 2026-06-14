@@ -1,0 +1,110 @@
+import { McpAgent } from "agents/mcp";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import type { Env } from "./types";
+import {
+  listEmails,
+  searchEmails,
+  getEmail,
+  getAttachment,
+  stats,
+} from "./store";
+import { getWebhook, setWebhook } from "./config";
+
+function json(data: unknown) {
+  return { content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }] };
+}
+
+function toMs(s?: string): number | undefined {
+  if (!s) return undefined;
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? undefined : t;
+}
+
+// Remote MCP server (Streamable HTTP). Exposes read tools over the stored mailbox
+// plus webhook configuration. Backed by a Durable Object per session.
+export class EmailMCP extends McpAgent<Env> {
+  server = new McpServer({ name: "cloudflare-email", version: "0.1.0" });
+
+  async init() {
+    this.server.tool(
+      "search_emails",
+      "Full-text search over stored email subjects and bodies (supports Chinese). Returns matching emails with a snippet.",
+      { query: z.string().describe("Search text"), limit: z.number().int().optional().describe("Max results, default 20") },
+      async ({ query, limit }) => json(await searchEmails(this.env, query, limit ?? 20))
+    );
+
+    this.server.tool(
+      "list_emails",
+      "List stored emails newest-first, optionally filtered by sender/recipient/subject/date range. Use offset for paging.",
+      {
+        from: z.string().optional().describe("Filter: sender contains"),
+        to: z.string().optional().describe("Filter: recipient contains"),
+        subject: z.string().optional().describe("Filter: subject contains"),
+        since: z.string().optional().describe("ISO date/time, inclusive lower bound"),
+        until: z.string().optional().describe("ISO date/time, inclusive upper bound"),
+        limit: z.number().int().optional().describe("Page size, default 20, max 100"),
+        offset: z.number().int().optional().describe("Rows to skip for paging"),
+      },
+      async ({ from, to, subject, since, until, limit, offset }) =>
+        json(
+          await listEmails(this.env, {
+            from, to, subject,
+            since: toMs(since), until: toMs(until),
+            limit, offset,
+          })
+        )
+    );
+
+    this.server.tool(
+      "get_email",
+      "Fetch one email's full content (headers, plain text, optional HTML, attachment list) by id.",
+      {
+        id: z.string().describe("Email id from list/search"),
+        include_html: z.boolean().optional().describe("Also return the HTML body, default false"),
+      },
+      async ({ id, include_html }) => {
+        const r = await getEmail(this.env, id, include_html ?? false);
+        return r ? json(r) : json({ error: "not found", id });
+      }
+    );
+
+    this.server.tool(
+      "get_attachment",
+      "Fetch one attachment's bytes (base64) and metadata by attachment id.",
+      { attachment_id: z.string().describe("Attachment id from get_email") },
+      async ({ attachment_id }) => {
+        const r = await getAttachment(this.env, attachment_id);
+        return r ? json(r) : json({ error: "not found", attachment_id });
+      }
+    );
+
+    this.server.tool(
+      "stats",
+      "Mailbox stats: total stored emails, how many have attachments, latest timestamps.",
+      {},
+      async () => json(await stats(this.env))
+    );
+
+    this.server.tool(
+      "get_webhook",
+      "Get the currently configured webhook URL that receives new-email notifications.",
+      {},
+      async () => json({ webhook_url: await getWebhook(this.env) })
+    );
+
+    this.server.tool(
+      "set_webhook",
+      "Set or clear the webhook URL. New emails are POSTed there as JSON. Pass an empty string to disable.",
+      { url: z.string().describe("Webhook URL, or empty string to clear") },
+      async ({ url }) => {
+        const trimmed = url.trim();
+        if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+          return json({ ok: false, error: "url must start with http(s)://" });
+        }
+        await setWebhook(this.env, trimmed || null);
+        return json({ ok: true, webhook_url: trimmed || null });
+      }
+    );
+  }
+}

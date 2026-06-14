@@ -1,0 +1,26 @@
+{
+  "name": "cloudflare-email",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev -c wrangler.local.jsonc",
+    "deploy": "wrangler deploy -c wrangler.local.jsonc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:local": "wrangler d1 execute email_db --local --file=./schema.sql -c wrangler.local.jsonc",
+    "db:remote": "wrangler d1 execute email_db --remote --file=./schema.sql -c wrangler.local.jsonc"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "agents": "^0.16.0",
+    "postal-mime": "^2.7.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260613.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8",
+    "wrangler": "^4.100.0"
+  }
+}

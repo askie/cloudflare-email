@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cloudflare-email",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-06-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // Durable Object backing the MCP session (required by McpAgent).
+  "durable_objects": {
+    "bindings": [{ "name": "MCP_OBJECT", "class_name": "EmailMCP" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["EmailMCP"] }
+  ],
+
+  // D1: queryable metadata + plain-text body + FTS index + config.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "email_db",
+      "database_id": "<YOUR_D1_DATABASE_ID>"
+    }
+  ],
+
+  // R2: raw .eml, html bodies, attachments.
+  "r2_buckets": [
+    { "binding": "BUCKET", "bucket_name": "email-store" }
+  ],
+
+  // Custom domain on your Cloudflare zone (workers.dev is TLS-reset in some regions).
+  // Replace with your own subdomain, e.g. "mail.yourdomain.com".
+  "routes": [
+    { "pattern": "mail.yourdomain.com", "custom_domain": true }
+  ]
+
+  // MCP_TOKEN is a secret -> `wrangler secret put MCP_TOKEN`
+  // Email Routing rule (-> this worker) is configured in the dashboard / via API.
+}
