@@ -8,6 +8,9 @@ import {
   getEmail,
   getAttachment,
   stats,
+  createApiKey,
+  listApiKeys,
+  deleteApiKey,
 } from "./store";
 import { getWebhook, setWebhook } from "./config";
 
@@ -25,13 +28,25 @@ function toMs(s?: string): number | undefined {
 // plus webhook configuration. Backed by a Durable Object per session.
 export class EmailMCP extends McpAgent<Env> {
   server = new McpServer({ name: "cloudflare-email", version: "0.1.0" });
+  userEmail?: string;
+  isAdmin = false;
+
+  async fetch(request: Request, ...args: any[]) {
+    const email = request.headers.get("x-user-email");
+    this.userEmail = email || undefined;
+    const admin = request.headers.get("x-is-admin");
+    this.isAdmin = admin === "true";
+
+    // @ts-ignore
+    return super.fetch(request, ...args);
+  }
 
   async init() {
     this.server.tool(
       "search_emails",
       "Full-text search over stored email subjects and bodies (supports Chinese). Returns matching emails with a snippet.",
       { query: z.string().describe("Search text"), limit: z.number().int().optional().describe("Max results, default 20") },
-      async ({ query, limit }) => json(await searchEmails(this.env, query, limit ?? 20))
+      async ({ query, limit }) => json(await searchEmails(this.env, query, limit ?? 20, this.userEmail))
     );
 
     this.server.tool(
@@ -52,7 +67,7 @@ export class EmailMCP extends McpAgent<Env> {
             from, to, subject,
             since: toMs(since), until: toMs(until),
             limit, offset,
-          })
+          }, this.userEmail)
         )
     );
 
@@ -64,8 +79,8 @@ export class EmailMCP extends McpAgent<Env> {
         include_html: z.boolean().optional().describe("Also return the HTML body, default false"),
       },
       async ({ id, include_html }) => {
-        const r = await getEmail(this.env, id, include_html ?? false);
-        return r ? json(r) : json({ error: "not found", id });
+        const r = await getEmail(this.env, id, include_html ?? false, this.userEmail);
+        return r ? json(r) : json({ error: "not found or access denied", id });
       }
     );
 
@@ -74,8 +89,8 @@ export class EmailMCP extends McpAgent<Env> {
       "Fetch one attachment's bytes (base64) and metadata by attachment id.",
       { attachment_id: z.string().describe("Attachment id from get_email") },
       async ({ attachment_id }) => {
-        const r = await getAttachment(this.env, attachment_id);
-        return r ? json(r) : json({ error: "not found", attachment_id });
+        const r = await getAttachment(this.env, attachment_id, this.userEmail);
+        return r ? json(r) : json({ error: "not found or access denied", attachment_id });
       }
     );
 
@@ -83,14 +98,17 @@ export class EmailMCP extends McpAgent<Env> {
       "stats",
       "Mailbox stats: total stored emails, how many have attachments, latest timestamps.",
       {},
-      async () => json(await stats(this.env))
+      async () => json(await stats(this.env, this.userEmail))
     );
 
     this.server.tool(
       "get_webhook",
       "Get the currently configured webhook URL that receives new-email notifications.",
       {},
-      async () => json({ webhook_url: await getWebhook(this.env) })
+      async () => {
+        if (!this.isAdmin) return json({ error: "Permission denied: admin only" });
+        return json({ webhook_url: await getWebhook(this.env) });
+      }
     );
 
     this.server.tool(
@@ -98,12 +116,47 @@ export class EmailMCP extends McpAgent<Env> {
       "Set or clear the webhook URL. New emails are POSTed there as JSON. Pass an empty string to disable.",
       { url: z.string().describe("Webhook URL, or empty string to clear") },
       async ({ url }) => {
+        if (!this.isAdmin) return json({ error: "Permission denied: admin only" });
         const trimmed = url.trim();
         if (trimmed && !/^https?:\/\//i.test(trimmed)) {
           return json({ ok: false, error: "url must start with http(s)://" });
         }
         await setWebhook(this.env, trimmed || null);
         return json({ ok: true, webhook_url: trimmed || null });
+      }
+    );
+
+    // API key management (Admin only)
+    this.server.tool(
+      "create_api_key",
+      "Admin only. Create a new API Key bound to a specific user email.",
+      { email: z.string().email().describe("The user email to bind this key to") },
+      async ({ email }) => {
+        if (!this.isAdmin) return json({ error: "Permission denied: admin only" });
+        const key = await createApiKey(this.env, email);
+        return json({ ok: true, email, api_key: key });
+      }
+    );
+
+    this.server.tool(
+      "list_api_keys",
+      "Admin only. List all active API keys.",
+      {},
+      async () => {
+        if (!this.isAdmin) return json({ error: "Permission denied: admin only" });
+        const keys = await listApiKeys(this.env);
+        return json({ keys });
+      }
+    );
+
+    this.server.tool(
+      "delete_api_key",
+      "Admin only. Delete the API key associated with a specific user email.",
+      { email: z.string().email().describe("The user email to delete the key for") },
+      async ({ email }) => {
+        if (!this.isAdmin) return json({ error: "Permission denied: admin only" });
+        const ok = await deleteApiKey(this.env, email);
+        return json({ ok });
       }
     );
   }

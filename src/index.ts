@@ -1,5 +1,6 @@
 import { EmailMCP } from "./mcp";
 import { ingest } from "./email";
+import { authenticate } from "./auth";
 import type { Env } from "./types";
 
 // Durable Object class backing the MCP session (referenced by wrangler.jsonc).
@@ -10,12 +11,6 @@ function unauthorized(): Response {
     status: 401,
     headers: { "WWW-Authenticate": 'Bearer realm="mcp"' },
   });
-}
-
-function isAuthed(request: Request, env: Env): boolean {
-  const h = request.headers.get("Authorization") || "";
-  const m = h.match(/^Bearer\s+(.+)$/i);
-  return !!m && !!env.MCP_TOKEN && m[1] === env.MCP_TOKEN;
 }
 
 export default {
@@ -33,11 +28,21 @@ export default {
     }
 
     if (url.pathname === "/mcp" || url.pathname === "/sse" || url.pathname === "/sse/message") {
-      if (!isAuthed(request, env)) return unauthorized();
-      if (url.pathname === "/mcp") {
-        return EmailMCP.serve("/mcp").fetch(request, env, ctx);
+      const auth = await authenticate(request, env);
+      if (!auth.authed) return unauthorized();
+
+      const headers = new Headers(request.headers);
+      if (auth.email) {
+        headers.set("x-user-email", auth.email);
       }
-      return EmailMCP.serveSSE("/sse").fetch(request, env, ctx);
+      headers.set("x-is-admin", auth.isAdmin ? "true" : "false");
+
+      const authedRequest = new Request(request, { headers });
+
+      if (url.pathname === "/mcp") {
+        return EmailMCP.serve("/mcp").fetch(authedRequest, env, ctx);
+      }
+      return EmailMCP.serveSSE("/sse").fetch(authedRequest, env, ctx);
     }
 
     return new Response("Not found", { status: 404 });

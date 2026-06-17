@@ -45,3 +45,10 @@ CREATE TABLE IF NOT EXISTS config (
   key   TEXT PRIMARY KEY,
   value TEXT
 );
+
+-- API Keys: mapping from API Key to specific user email.
+CREATE TABLE IF NOT EXISTS api_keys (
+  key_value   TEXT PRIMARY KEY,
+  email       TEXT NOT NULL UNIQUE,
+  created_at  INTEGER NOT NULL
+);
