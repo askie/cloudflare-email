@@ -26,22 +26,26 @@ function toMs(s?: string): number | undefined {
 
 // Remote MCP server (Streamable HTTP). Exposes read tools over the stored mailbox
 // plus webhook configuration. Backed by a Durable Object per session.
+// Identity injected by the worker entrypoint via ctx.props. The agents runtime
+// persists props with the session, so it's available in init() on first start
+// and on every later wake (including SSE messages after hibernation).
+interface Identity {
+  isAdmin?: boolean;
+  email?: string;
+}
+
 export class EmailMCP extends McpAgent<Env> {
   server = new McpServer({ name: "cloudflare-email", version: "0.1.0" });
   userEmail?: string;
   isAdmin = false;
 
-  async fetch(request: Request, ...args: any[]) {
-    const email = request.headers.get("x-user-email");
-    this.userEmail = email || undefined;
-    const admin = request.headers.get("x-is-admin");
-    this.isAdmin = admin === "true";
-
-    // @ts-ignore
-    return super.fetch(request, ...args);
-  }
-
   async init() {
+    const id = (this.props ?? {}) as Identity;
+    this.isAdmin = !!id.isAdmin;
+    this.userEmail = id.email || undefined;
+
+    // --- Read tools: available to every authenticated identity. They self-scope
+    // to the caller's mailbox via this.userEmail (admin = undefined = full view).
     this.server.tool(
       "search_emails",
       "Full-text search over stored email subjects and bodies (supports Chinese). Returns matching emails with a snippet.",
@@ -100,6 +104,11 @@ export class EmailMCP extends McpAgent<Env> {
       {},
       async () => json(await stats(this.env, this.userEmail))
     );
+
+    // --- Admin-only tools: registered only for the admin identity, so non-admin
+    // keys never see them in tools/list. The per-handler isAdmin check below is
+    // kept as a defense-in-depth backstop — never rely on hiding alone.
+    if (!this.isAdmin) return;
 
     this.server.tool(
       "get_webhook",

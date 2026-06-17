@@ -31,18 +31,17 @@ export default {
       const auth = await authenticate(request, env);
       if (!auth.authed) return unauthorized();
 
-      const headers = new Headers(request.headers);
-      if (auth.email) {
-        headers.set("x-user-email", auth.email);
-      }
-      headers.set("x-is-admin", auth.isAdmin ? "true" : "false");
-
-      const authedRequest = new Request(request, { headers });
+      // Pass the resolved identity to the MCP agent via ctx.props. The runtime
+      // persists it with the session, so init() can register tools per identity.
+      (ctx as ExecutionContext & { props?: unknown }).props = {
+        isAdmin: auth.isAdmin,
+        email: auth.email,
+      };
 
       if (url.pathname === "/mcp") {
-        return EmailMCP.serve("/mcp").fetch(authedRequest, env, ctx);
+        return EmailMCP.serve("/mcp").fetch(request, env, ctx);
       }
-      return EmailMCP.serveSSE("/sse").fetch(authedRequest, env, ctx);
+      return EmailMCP.serveSSE("/sse").fetch(request, env, ctx);
     }
 
     return new Response("Not found", { status: 404 });
