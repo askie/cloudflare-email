@@ -1,0 +1,6 @@
+{
+  "base": "https://mail.example.com",
+  "email": "you@example.com",
+  "key": "sk-replace-with-your-api-key",
+  "cursor": 0
+}
