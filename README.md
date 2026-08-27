@@ -1,3 +1,11 @@
+# cloudflare-email （已迁移）
+
+> **这个仓库已废弃，不再更新。** 项目整体搬到了 **[askie/cfmail](https://github.com/askie/cfmail)**，请去那边看代码、提 issue、拉最新版本。
+>
+> `git clone` 本仓库地址依然能拉到最后的历史，但后续开发都在新仓库进行。
+
+---
+
 # cloudflare-email · 给 Agent 一个自己能收发邮件的邮箱
 
 ## 这是什么
